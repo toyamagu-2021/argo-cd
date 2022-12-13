@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/argoproj/gitops-engine/pkg/health"
@@ -181,7 +182,8 @@ func TestKustomizeImages(t *testing.T) {
 
 // make sure we we can invoke the CLI to replace replicas and actual deployment is set to correct value
 func TestKustomizeReplicas2AppSource(t *testing.T) {
-	const deploymentName = "guestbook-ui"
+	deploymentName := "guestbook-ui"
+	deploymentReplicas := 2
 	checkReplicasFor := func(kind string) func(app *Application) {
 		return func(app *Application) {
 			name := deploymentName
@@ -190,7 +192,7 @@ func TestKustomizeReplicas2AppSource(t *testing.T) {
 				"get", kind, name,
 				"-ojsonpath={.spec.replicas}")
 			assert.NoError(t, err)
-			assert.Equal(t, "2", replicas, "wrong value of replicas %s %s", kind, name)
+			assert.Equal(t, strconv.Itoa(deploymentReplicas), replicas, "wrong value of replicas %s %s", kind, name)
 		}
 	}
 
@@ -201,7 +203,10 @@ func TestKustomizeReplicas2AppSource(t *testing.T) {
 		AppSet("--kustomize-replica", deploymentName+"=2").
 		Then().
 		And(func(app *Application) {
-			assert.Contains(t, app.Spec.Source.Kustomize.Replicas, deploymentName+"=2")
+			assert.Contains(t, app.Spec.Source.Kustomize.Replicas[0].Name, deploymentName)
+		}).
+		And(func(app *Application) {
+			assert.Contains(t, app.Spec.Source.Kustomize.Replicas[0].Count, deploymentReplicas)
 		}). // check Kustomize CLI
 		Expect(Success("")).
 		When().
