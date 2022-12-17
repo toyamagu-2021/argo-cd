@@ -1,7 +1,9 @@
 package util
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"testing"
 
 	log "github.com/sirupsen/logrus"
@@ -160,6 +162,7 @@ func newAppOptionsFixture() *appOptionsFixture {
 }
 
 func Test_setAppSpecOptions(t *testing.T) {
+
 	f := newAppOptionsFixture()
 	t.Run("SyncPolicy", func(t *testing.T) {
 		assert.NoError(t, f.SetFlag("sync-policy", "automated"))
@@ -190,6 +193,58 @@ func Test_setAppSpecOptions(t *testing.T) {
 
 		assert.NoError(t, f.SetFlag("sync-retry-limit", "0"))
 		assert.Nil(t, f.spec.SyncPolicy.Retry)
+	})
+
+	t.Run("Source", func(t *testing.T) {
+		kustomizeWant := argoappv1.ApplicationSourceKustomize{
+			NamePrefix:             "prefix-",
+			NameSuffix:             "-suffix",
+			Images:                 []argoappv1.KustomizeImage{"image1:tag1", "image2:tag2"},
+			CommonLabels:           map[string]string{"key1": "value1", "key2": "value2"},
+			Version:                "v4.0.0",
+			CommonAnnotations:      map[string]string{"key1": "value1", "key2": "value2"},
+			ForceCommonLabels:      true,
+			ForceCommonAnnotations: true,
+		}
+
+		helmWant := argoappv1.ApplicationSourceHelm{
+			ValueFiles: []string{"value1.yaml", "value2.yaml"},
+			Parameters: []argoappv1.HelmParameter{
+				{Name: "key1", Value: "value1", ForceString: false},
+				{Name: "key2", Value: "value2", ForceString: false},
+				{Name: "key3", Value: "3", ForceString: true},
+			},
+			ReleaseName: "release1",
+			Values:      "key1: value1\nkey2: value2",
+			FileParameters: []argoappv1.HelmFileParameter{
+				{Name: "key1", Path: "path1"},
+				{Name: "key2", Path: "path2"},
+			},
+			Version:                 "v3.0.0",
+			PassCredentials:         true,
+			IgnoreMissingValueFiles: true,
+			SkipCrds:                true,
+		}
+
+		sourceWant := argoappv1.ApplicationSource{
+			RepoURL:        "https://example.com",
+			Path:           "path",
+			TargetRevision: "v0.0.0",
+			Helm:           &helmWant,
+			Kustomize:      &kustomizeWant,
+			Directory:      nil,
+			Plugin:         nil,
+		}
+
+		f.spec.Source = nil
+		setFlagKustomize(t, f, kustomizeWant)
+		setFlagHelm(t, f, helmWant)
+
+		assert.NoError(t, f.SetFlag("repo", sourceWant.RepoURL))
+		assert.NoError(t, f.SetFlag("path", sourceWant.Path))
+		assert.NoError(t, f.SetFlag("revision", sourceWant.TargetRevision))
+
+		assert.Equal(t, sourceWant, *f.spec.Source)
 	})
 }
 
@@ -393,4 +448,53 @@ func TestFilterResources(t *testing.T) {
 		assert.ErrorContains(t, err, "Use the --all flag")
 		assert.Nil(t, filteredResources)
 	})
+}
+
+func setFlagKustomize(t *testing.T, f *appOptionsFixture, want argoappv1.ApplicationSourceKustomize) {
+	t.Helper()
+	t.Run("Kustomize", func(t *testing.T) {
+		for _, v := range want.Images {
+			assert.NoError(t, f.SetFlag("kustomize-image", string(v)))
+		}
+		for k, v := range want.CommonLabels {
+			assert.NoError(t, f.SetFlag("kustomize-common-label", fmt.Sprintf("%s=%s", k, v)))
+		}
+		for k, v := range want.CommonAnnotations {
+			assert.NoError(t, f.SetFlag("kustomize-common-annotation", fmt.Sprintf("%s=%s", k, v)))
+		}
+
+		assert.NoError(t, f.SetFlag("nameprefix", want.NamePrefix))
+		assert.NoError(t, f.SetFlag("namesuffix", want.NameSuffix))
+		assert.NoError(t, f.SetFlag("kustomize-version", want.Version))
+		assert.NoError(t, f.SetFlag("kustomize-force-common-label", strconv.FormatBool(want.ForceCommonLabels)))
+		assert.NoError(t, f.SetFlag("kustomize-force-common-annotation", strconv.FormatBool(want.ForceCommonAnnotations)))
+
+		assert.Equal(t, want, *f.spec.Source.Kustomize)
+	})
+}
+
+func setFlagHelm(t *testing.T, f *appOptionsFixture, want argoappv1.ApplicationSourceHelm) {
+	t.Helper()
+	for _, v := range want.ValueFiles {
+		assert.NoError(t, f.SetFlag("values", v))
+	}
+	for _, v := range want.Parameters {
+		if v.ForceString {
+			assert.NoError(t, f.SetFlag("helm-set-string", fmt.Sprintf("%s=%s", v.Name, v.Value)))
+		} else {
+			assert.NoError(t, f.SetFlag("helm-set", fmt.Sprintf("%s=%s", v.Name, v.Value)))
+		}
+	}
+	for _, v := range want.FileParameters {
+		assert.NoError(t, f.SetFlag("helm-set-file", fmt.Sprintf("%s=%s", v.Name, v.Path)))
+	}
+
+	assert.NoError(t, f.SetFlag("release-name", want.ReleaseName))
+	assert.NoError(t, f.SetFlag("helm-version", want.Version))
+	assert.NoError(t, f.SetFlag("helm-pass-credentials", strconv.FormatBool(want.PassCredentials)))
+	assert.NoError(t, f.SetFlag("helm-skip-crds", strconv.FormatBool(want.SkipCrds)))
+	assert.NoError(t, f.SetFlag("ignore-missing-value-files", strconv.FormatBool(want.IgnoreMissingValueFiles)))
+	assert.NoError(t, f.SetFlag("values-literal-file", "./testdata/helm-values.yaml"))
+
+	assert.Equal(t, want, *f.spec.Source.Helm)
 }
