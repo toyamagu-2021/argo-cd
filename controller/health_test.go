@@ -1,9 +1,13 @@
 package controller
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
+	"github.com/argoproj/argo-cd/v2/pkg/apis/application"
+	appv1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
+	"github.com/argoproj/argo-cd/v2/util/lua"
 	"github.com/argoproj/gitops-engine/pkg/health"
 	synccommon "github.com/argoproj/gitops-engine/pkg/sync/common"
 	"github.com/argoproj/gitops-engine/pkg/utils/kube"
@@ -13,9 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"github.com/argoproj/argo-cd/v2/pkg/apis/application"
-	appv1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
-	"github.com/argoproj/argo-cd/v2/util/lua"
+	argocdcommon "github.com/argoproj/argo-cd/v2/common"
 )
 
 var app = &appv1.Application{}
@@ -175,5 +177,69 @@ return hs`,
 		healthStatus, err := setApplicationHealth(resources, resourceStatuses, overrides, app, true)
 		assert.NoError(t, err)
 		assert.Equal(t, health.HealthStatusHealthy, healthStatus.Status)
+	})
+}
+
+func TestSetApplicationHealth_SkipHealthCheck(t *testing.T) {
+	failedJob := resourceFromFile("./testdata/job-failed.yaml")
+
+	t.Run("Not Skip Health Check", func(t *testing.T) {
+		antVal := fmt.Sprintf(
+			"%s,%s,%s,%s,%s",
+			health.HealthStatusHealthy,
+			health.HealthStatusSuspended,
+			health.HealthStatusProgressing,
+			health.HealthStatusMissing,
+			health.HealthStatusUnknown,
+		)
+		failedJob.SetAnnotations(map[string]string{
+			argocdcommon.AnnotationKeySkipHealthCheck: antVal,
+		})
+		resources := []managedResource{
+			{Group: "", Version: "v1", Kind: "Job", Live: &failedJob},
+		}
+		resourceStatuses := initStatuses(resources)
+
+		healthStatus, err := setApplicationHealth(resources, resourceStatuses, lua.ResourceHealthOverrides{}, app, true)
+		assert.NoError(t, err)
+		assert.Equal(t, health.HealthStatusDegraded, healthStatus.Status)
+		assert.Equal(t, resourceStatuses[0].Health.Status, health.HealthStatusDegraded)
+	})
+
+	t.Run("Skip Health Check for Degraded", func(t *testing.T) {
+		failedJob.SetAnnotations(map[string]string{
+			argocdcommon.AnnotationKeySkipHealthCheck: string(health.HealthStatusDegraded),
+		})
+		resources := []managedResource{
+			{Group: "", Version: "v1", Kind: "Job", Live: &failedJob, Target: &failedJob},
+		}
+		appHealthMessage := fmt.Sprintf("Skip health check on resource Kind: %s, Namespace: %s, Name: %s, Status: %s, Message: %s.",
+			resources[0].Kind, resources[0].Namespace, resources[0].Name, health.HealthStatusDegraded, "Job has reached the specified backoff limit")
+
+		resourceStatuses := initStatuses(resources)
+
+		healthStatus, err := setApplicationHealth(resources, resourceStatuses, lua.ResourceHealthOverrides{}, app, true)
+		assert.NoError(t, err)
+		assert.Equal(t, health.HealthStatusHealthy, healthStatus.Status)
+		assert.Equal(t, health.HealthStatusDegraded, resourceStatuses[0].Health.Status)
+		assert.Equal(t, appHealthMessage, healthStatus.Message)
+	})
+
+	t.Run("Skip Health Check for All", func(t *testing.T) {
+		failedJob.SetAnnotations(map[string]string{
+			argocdcommon.AnnotationKeySkipHealthCheck: "true",
+		})
+		resources := []managedResource{
+			{Group: "", Version: "v1", Kind: "Job", Live: &failedJob, Target: &failedJob},
+		}
+		appHealthMessage := fmt.Sprintf("Skip health check on resource Kind: %s, Namespace: %s, Name: %s, Status: %s, Message: %s.",
+			resources[0].Kind, resources[0].Namespace, resources[0].Name, health.HealthStatusDegraded, "Job has reached the specified backoff limit")
+		resourceStatuses := initStatuses(resources)
+
+		healthStatus, err := setApplicationHealth(resources, resourceStatuses, lua.ResourceHealthOverrides{}, app, true)
+		assert.NoError(t, err)
+		assert.Equal(t, health.HealthStatusHealthy, healthStatus.Status)
+		assert.Equal(t, health.HealthStatusDegraded, resourceStatuses[0].Health.Status)
+		assert.Equal(t, appHealthMessage, healthStatus.Message)
 	})
 }

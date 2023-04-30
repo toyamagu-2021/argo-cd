@@ -163,6 +163,10 @@ const (
 	// AnnotationKeyAppSkipReconcile tells the Application to skip the Application controller reconcile.
 	// Skip reconcile when the value is "true" or any other string values that can be strconv.ParseBool() to be true.
 	AnnotationKeyAppSkipReconcile = "argocd.argoproj.io/skip-reconcile"
+
+	// AnnotationKeySkipHealthCheck tells the Application controller to skip health checks on the application.
+	// Skip all health checks when the value is "true"
+	AnnotationKeySkipHealthCheck = "argocd.argoproj.io/skip-health-check"
 )
 
 // Environment variables for tuning and debugging Argo CD

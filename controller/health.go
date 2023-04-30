@@ -6,10 +6,13 @@ import (
 	"github.com/argoproj/gitops-engine/pkg/health"
 	hookutil "github.com/argoproj/gitops-engine/pkg/sync/hook"
 	"github.com/argoproj/gitops-engine/pkg/sync/ignore"
+	resourceutil "github.com/argoproj/gitops-engine/pkg/sync/resource"
 	kubeutil "github.com/argoproj/gitops-engine/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	argocdcommon "github.com/argoproj/argo-cd/v2/common"
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application"
 	appv1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v2/util/lua"
@@ -70,6 +73,12 @@ func setApplicationHealth(resources []managedResource, statuses []appv1.Resource
 			continue
 		}
 
+		if isResourceHealthSkipped(res.Target, healthStatus.Status) {
+			appHealth.Message += fmt.Sprintf("Skip health check on resource Kind: %s, Namespace: %s, Name: %s, Status: %s, Message: %s.",
+				res.Kind, res.Namespace, res.Name, healthStatus.Status, healthStatus.Message)
+			healthStatus.Status = health.HealthStatusHealthy
+		}
+
 		if health.IsWorse(appHealth.Status, healthStatus.Status) {
 			appHealth.Status = healthStatus.Status
 		}
@@ -83,4 +92,17 @@ func setApplicationHealth(resources []managedResource, statuses []appv1.Resource
 		savedErr = fmt.Errorf("see applicaton-controller logs for %d other errors; most recent error was: %w", errCount-1, savedErr)
 	}
 	return &appHealth, savedErr
+}
+
+func isResourceHealthSkipped(obj *unstructured.Unstructured, status health.HealthStatusCode) bool {
+	if obj == nil {
+		return false
+	}
+	skipStatuses := resourceutil.GetAnnotationCSVs(obj, argocdcommon.AnnotationKeySkipHealthCheck)
+	for _, ss := range skipStatuses {
+		if status == health.HealthStatusCode(ss) || ss == "true" {
+			return true
+		}
+	}
+	return false
 }
