@@ -22,5 +22,5 @@ func TestDontSkipHealthCheck(t *testing.T) {
 			app.Annotations = map[string]string{common.AnnotationKeySkipHealthCheck: "not-skip"}
 		}).
 		Then().
-		Expect(HealthIs(health.HealthStatusHealthy))
+		Expect(HealthIs(health.HealthStatusDegraded))
 }
