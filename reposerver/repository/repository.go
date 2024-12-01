@@ -2801,6 +2801,19 @@ func (s *Service) UpdateRevisionForPaths(_ context.Context, request *apiclient.U
 	s.metricsServer.IncPendingRepoRequest(repo.Repo)
 	defer s.metricsServer.DecPendingRepoRequest(repo.Repo)
 
+	// Check if the synced revision is present in the repo. If not, checkout the revision
+	// Note that fetching with an explicit version can cause repo bloat [https://github.com/argoproj/argo-cd/issues/8845],
+	// so we should take lock (theoretically not necessary) and checkout.
+	if !gitClient.IsRevisionPresent(syncedRevision) {
+		closer, err := s.repoLock.Lock(gitClient.Root(), syncedRevision, true, func() (goio.Closer, error) {
+			return s.checkoutRevision(gitClient, syncedRevision, false)
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to checkout git repo %s with revision %s: %v", repo.Repo, revision, err)
+		}
+		io.Close(closer)
+	}
+
 	closer, err := s.repoLock.Lock(gitClient.Root(), revision, true, func() (goio.Closer, error) {
 		return s.checkoutRevision(gitClient, revision, false)
 	})
