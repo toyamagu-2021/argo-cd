@@ -3021,7 +3021,7 @@ func TestFetchRevisionCanGetNonstandardRefs(t *testing.T) {
 	destRepoPath, err := os.MkdirTemp(rootPath, "")
 	require.NoError(t, err)
 
-	gitClient, err := git.NewClientExt("file://"+sourceRepoPath, destRepoPath, &git.NopCreds{}, true, false, "", "")
+	gitClient, err := git.NewClientExt("file://"+sourceRepoPath, destRepoPath, &git.NopCreds{}, true, false, "")
 	require.NoError(t, err)
 
 	// We should initialize repository
