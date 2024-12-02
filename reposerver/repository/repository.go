@@ -2434,6 +2434,7 @@ func (s *Service) fetch(gitClient git.Client, targetRevisions []string) error {
 }
 
 func fetch(gitClient git.Client, targetRevisions []string) error {
+	// Fetching with no revision first. Fetching with an explicit version can cause repo bloat. https://github.com/argoproj/argo-cd/issues/8845
 	err := gitClient.Fetch("")
 	if err != nil {
 		return err
